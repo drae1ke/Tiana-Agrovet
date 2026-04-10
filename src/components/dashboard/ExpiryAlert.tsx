@@ -1,6 +1,6 @@
 import React from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
-import { getProducts } from '@/utils/storage';
+import { useProducts } from '@/hooks/useProducts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -10,7 +10,8 @@ import { differenceInDays, parseISO, format } from 'date-fns';
 
 const ExpiryAlert: React.FC = () => {
   const { t, language } = useLanguage();
-  const products = getProducts();
+  const { data: productsData } = useProducts({ limit: 200 });
+  const products = productsData?.data || [];
   const today = new Date();
   
   const expiringProducts = products
@@ -48,7 +49,7 @@ const ExpiryAlert: React.FC = () => {
       <CardContent>
         <div className="space-y-3">
           {expiringProducts.slice(0, 5).map((product) => (
-            <div key={product.id} className="flex items-center justify-between text-sm">
+            <div key={product._id} className="flex items-center justify-between text-sm">
               <div>
                 <p className="font-medium">
                   {language === 'sw' ? product.nameSwahili : product.name}

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
-import { getSuppliers, addSupplier, updateSupplier, deleteSupplier as removeSupplier } from '@/utils/storage';
 import { Supplier } from '@/types';
+import { useSuppliers, useCreateSupplier, useUpdateSupplier, useDeleteSupplier } from '@/hooks/useApi';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -45,12 +45,18 @@ const Suppliers: React.FC = () => {
   const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<Supplier | null>(null);
 
-  const suppliers = getSuppliers();
+  const { data: suppliersData, isLoading } = useSuppliers({ limit: 200 });
+  const createSupplierMutation = useCreateSupplier();
+  const updateSupplierMutation = useUpdateSupplier();
+  const deleteSupplierMutation = useDeleteSupplier();
+
+  // Ensure suppliers is always an array
+  const suppliers = suppliersData?.data || [];
 
   const filteredSuppliers = suppliers.filter(s =>
     s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     s.phone.includes(searchQuery) ||
-    s.email.toLowerCase().includes(searchQuery.toLowerCase())
+    (s.email || '').toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const [formData, setFormData] = useState<Partial<Supplier>>({
@@ -89,42 +95,81 @@ const Suppliers: React.FC = () => {
       return;
     }
 
-    const now = new Date().toISOString();
-    
     if (editingSupplier) {
-      updateSupplier({
-        ...editingSupplier,
-        ...formData,
-        updatedAt: now,
-      } as Supplier);
-      toast.success(language === 'sw' ? 'Msambazaji amesasishwa' : 'Supplier updated');
+      updateSupplierMutation.mutate(
+        {
+          id: editingSupplier._id,
+          payload: {
+            name: formData.name!,
+            phone: formData.phone!,
+            email: formData.email || '',
+            address: formData.address || '',
+            isTrusted: formData.isTrusted || false,
+            autoOrderEnabled: formData.autoOrderEnabled || false,
+          }
+        },
+        {
+          onSuccess: () => {
+            setShowModal(false);
+            setEditingSupplier(null);
+            setFormData({
+              name: '',
+              phone: '',
+              email: '',
+              address: '',
+              isTrusted: false,
+              autoOrderEnabled: false,
+            });
+          }
+        }
+      );
     } else {
-      const newSupplier: Supplier = {
-        id: Date.now().toString(36) + Math.random().toString(36).substr(2),
-        name: formData.name!,
-        phone: formData.phone!,
-        email: formData.email || '',
-        address: formData.address || '',
-        products: [],
-        isTrusted: formData.isTrusted || false,
-        autoOrderEnabled: formData.autoOrderEnabled || false,
-        createdAt: now,
-        updatedAt: now,
-      };
-      addSupplier(newSupplier);
-      toast.success(language === 'sw' ? 'Msambazaji ameongezwa' : 'Supplier added');
+      createSupplierMutation.mutate(
+        {
+          name: formData.name!,
+          phone: formData.phone!,
+          email: formData.email || '',
+          address: formData.address || '',
+          isTrusted: formData.isTrusted || false,
+          autoOrderEnabled: formData.autoOrderEnabled || false,
+        },
+        {
+          onSuccess: () => {
+            setShowModal(false);
+            setFormData({
+              name: '',
+              phone: '',
+              email: '',
+              address: '',
+              isTrusted: false,
+              autoOrderEnabled: false,
+            });
+          }
+        }
+      );
     }
-
-    setShowModal(false);
   };
 
   const handleDelete = () => {
     if (showDeleteConfirm) {
-      removeSupplier(showDeleteConfirm.id);
-      toast.success(language === 'sw' ? 'Msambazaji amefutwa' : 'Supplier deleted');
-      setShowDeleteConfirm(null);
+      deleteSupplierMutation.mutate(showDeleteConfirm._id, {
+        onSuccess: () => {
+          setShowDeleteConfirm(null);
+        }
+      });
     }
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent mx-auto mb-4"></div>
+          <p className="text-muted-foreground">{t('loading')}</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -166,7 +211,7 @@ const Suppliers: React.FC = () => {
               </TableHeader>
               <TableBody>
                 {filteredSuppliers.map((supplier) => (
-                  <TableRow key={supplier.id}>
+                  <TableRow key={supplier._id}>
                     <TableCell className="font-medium">{supplier.name}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">

@@ -1,6 +1,6 @@
 import React from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
-import { getSales } from '@/utils/storage';
+import { useSales } from '@/hooks/useApi';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   AreaChart,
@@ -15,7 +15,9 @@ import { format, subDays, parseISO, startOfDay, isSameDay } from 'date-fns';
 
 const SalesChart: React.FC = () => {
   const { t } = useLanguage();
-  const sales = getSales();
+  const { data: salesData } = useSales({ limit: 500 });
+  
+  const sales = salesData?.data || [];
 
   // Generate last 7 days data
   const last7Days = Array.from({ length: 7 }, (_, i) => {

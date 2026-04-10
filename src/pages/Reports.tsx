@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
-import { getSales, getProducts } from '@/utils/storage';
+import { useProducts } from '@/hooks/useProducts';
+import { useSales } from '@/hooks/useApi';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -40,8 +41,12 @@ const Reports: React.FC = () => {
   const { t, language } = useLanguage();
   const [activeTab, setActiveTab] = useState('sales');
 
-  const sales = getSales();
-  const products = getProducts();
+  const { data: salesData, isLoading: salesLoading } = useSales({ limit: 500 });
+  const { data: productsData, isLoading: productsLoading } = useProducts({ limit: 200 });
+
+  // Ensure data is always an array
+  const sales = salesData?.data || [];
+  const products = productsData?.data || [];
   const today = new Date();
 
   // Sales by category
@@ -105,6 +110,17 @@ const Reports: React.FC = () => {
 
   const totalRevenue = sales.reduce((sum, s) => sum + s.total, 0);
   const totalTransactions = sales.length;
+
+  if (salesLoading || productsLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent mx-auto mb-4"></div>
+          <p className="text-muted-foreground">{t('loading')}</p>
+        </div>
+      </div>
+    );
+  }
 
   const exportReport = (type: string) => {
     let data: any[] = [];

@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useMemo } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
-import { getProducts, getSales } from '@/utils/storage';
 import { initializeSeedData } from '@/utils/seedData';
 import { DashboardStats } from '@/types';
+import { useProducts } from '@/hooks/useProducts';
+import { useSales } from '@/hooks/useApi';
 import StatsCard from '@/components/dashboard/StatsCard';
 import LowStockAlert from '@/components/dashboard/LowStockAlert';
 import ExpiryAlert from '@/components/dashboard/ExpiryAlert';
@@ -23,22 +24,22 @@ import { differenceInDays, parseISO, isToday } from 'date-fns';
 
 const Dashboard: React.FC = () => {
   const { t } = useLanguage();
-  const [stats, setStats] = useState<DashboardStats>({
-    totalProducts: 0,
-    lowStockItems: 0,
-    expiringItems: 0,
-    todaySales: 0,
-    todayRevenue: 0,
-  });
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    // Initialize seed data on first load
+  
+  // Initialize seed data on first load
+  React.useEffect(() => {
     initializeSeedData();
-    
-    // Calculate stats
-    const products = getProducts();
-    const sales = getSales();
+  }, []);
+
+  // Fetch data using React Query hooks
+  const { data: productsData, isLoading: productsLoading } = useProducts({ limit: 200 });
+  const { data: salesData, isLoading: salesLoading } = useSales({ limit: 500 });
+
+  // Ensure data is always an array
+  const products = productsData?.data || [];
+  const sales = salesData?.data || [];
+
+  // Calculate stats
+  const stats = useMemo<DashboardStats>(() => {
     const today = new Date();
     
     const lowStockCount = products.filter(p => p.quantity <= p.minStockLevel).length;
@@ -50,17 +51,17 @@ const Dashboard: React.FC = () => {
     
     const todaySalesData = sales.filter(s => isToday(parseISO(s.createdAt)));
     const todayRevenue = todaySalesData.reduce((sum, s) => sum + s.total, 0);
-    
-    setStats({
+
+    return {
       totalProducts: products.length,
       lowStockItems: lowStockCount,
       expiringItems: expiringCount,
       todaySales: todaySalesData.length,
       todayRevenue,
-    });
-    
-    setIsLoading(false);
-  }, []);
+    };
+  }, [products, sales]);
+
+  const isLoading = productsLoading || salesLoading;
 
   if (isLoading) {
     return (

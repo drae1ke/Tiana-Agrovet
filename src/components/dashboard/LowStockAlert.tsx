@@ -1,6 +1,6 @@
 import React from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
-import { getProducts } from '@/utils/storage';
+import { useProducts } from '@/hooks/useProducts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -9,7 +9,8 @@ import { Link } from 'react-router-dom';
 
 const LowStockAlert: React.FC = () => {
   const { t, language } = useLanguage();
-  const products = getProducts();
+  const { data: productsData } = useProducts({ limit: 200 });
+  const products = productsData?.data || [];
   
   const lowStockProducts = products.filter(p => p.quantity <= p.minStockLevel);
 
@@ -29,7 +30,7 @@ const LowStockAlert: React.FC = () => {
       <CardContent>
         <div className="space-y-3">
           {lowStockProducts.slice(0, 5).map((product) => (
-            <div key={product.id} className="flex items-center justify-between text-sm">
+            <div key={product._id} className="flex items-center justify-between text-sm">
               <div>
                 <p className="font-medium">
                   {language === 'sw' ? product.nameSwahili : product.name}

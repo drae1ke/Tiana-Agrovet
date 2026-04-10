@@ -1,66 +1,83 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { AdminSession } from '@/types';
-import { 
-  validateCredentials, 
-  createSession, 
-  getSession, 
-  clearSession,
-  initializeDefaultData 
-} from '@/utils/storage';
+import { authApi, AdminUser } from '@/api/auth';
 
 interface AuthContextType {
-  session: AdminSession | null;
+  admin: AdminUser | null;
   isAuthenticated: boolean;
-  login: (username: string, password: string) => boolean;
-  logout: () => void;
   isLoading: boolean;
+  login: (username: string, password: string) => Promise<boolean>;
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-interface AuthProviderProps {
-  children: ReactNode;
-}
-
-export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
-  const [session, setSession] = useState<AdminSession | null>(null);
+export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+  const [admin, setAdmin] = useState<AdminUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Restore session from localStorage on mount
   useEffect(() => {
-    // Initialize default data and check for existing session
-    initializeDefaultData();
-    const existingSession = getSession();
-    setSession(existingSession);
-    setIsLoading(false);
+    const restoreSession = async () => {
+      const token = localStorage.getItem('accessToken');
+      if (!token) {
+        setIsLoading(false);
+        return;
+      }
+      try {
+        const me = await authApi.getMe();
+        setAdmin(me);
+      } catch {
+        // Token invalid/expired and refresh failed → clear everything
+        localStorage.removeItem('accessToken');
+        localStorage.removeItem('refreshToken');
+        localStorage.removeItem('admin');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    restoreSession();
   }, []);
 
-  const login = (username: string, password: string): boolean => {
-    if (validateCredentials(username, password)) {
-      const newSession = createSession(username);
-      setSession(newSession);
+  const login = async (username: string, password: string): Promise<boolean> => {
+    try {
+      const { admin: adminData, accessToken, refreshToken } = await authApi.login({
+        username,
+        password,
+      });
+      localStorage.setItem('accessToken', accessToken);
+      localStorage.setItem('refreshToken', refreshToken);
+      localStorage.setItem('admin', JSON.stringify(adminData));
+      setAdmin(adminData);
       return true;
+    } catch {
+      return false;
     }
-    return false;
   };
 
-  const logout = () => {
-    clearSession();
-    setSession(null);
+  const logout = async () => {
+    try {
+      await authApi.logout();
+    } catch {
+      // Best-effort — clear client state regardless
+    } finally {
+      localStorage.removeItem('accessToken');
+      localStorage.removeItem('refreshToken');
+      localStorage.removeItem('admin');
+      setAdmin(null);
+    }
   };
-
-  const isAuthenticated = session?.isAuthenticated ?? false;
 
   return (
-    <AuthContext.Provider value={{ session, isAuthenticated, login, logout, isLoading }}>
+    <AuthContext.Provider
+      value={{ admin, isAuthenticated: !!admin, isLoading, login, logout }}
+    >
       {children}
     </AuthContext.Provider>
   );
 };
 
 export const useAuth = (): AuthContextType => {
-  const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error('useAuth must be used within AuthProvider');
+  return ctx;
 };

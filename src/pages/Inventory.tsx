@@ -1,7 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
-import { getProducts, getSuppliers, addProduct, updateProduct, deleteProduct as removeProduct } from '@/utils/storage';
 import { Product, ProductCategory } from '@/types';
+import { useProducts, useCreateProduct, useUpdateProduct, useDeleteProduct } from '@/hooks/useProducts';
+import { useSuppliers } from '@/hooks/useApi';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -52,8 +53,15 @@ const Inventory: React.FC = () => {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<Product | null>(null);
 
-  const products = getProducts();
-  const suppliers = getSuppliers();
+  const { data: productsData } = useProducts({ limit: 200 });
+  const { data: suppliersData } = useSuppliers({ limit: 100 });
+  const createProductMutation = useCreateProduct();
+  const updateProductMutation = useUpdateProduct();
+  const deleteProductMutation = useDeleteProduct();
+
+  // Ensure products and suppliers are always arrays
+  const products = productsData?.data || [];
+  const suppliers = suppliersData?.data || [];
 
   const filteredProducts = useMemo(() => {
     return products.filter(p => {
@@ -115,19 +123,42 @@ const Inventory: React.FC = () => {
       return;
     }
 
-    const now = new Date().toISOString();
-    
     if (editingProduct) {
-      updateProduct({
-        ...editingProduct,
-        ...formData,
-        expiryDate: formData.expiryDate ? new Date(formData.expiryDate).toISOString() : null,
-        updatedAt: now,
-      } as Product);
-      toast.success(language === 'sw' ? 'Bidhaa imesasishwa' : 'Product updated');
+      updateProductMutation.mutate({
+        id: editingProduct._id,
+        payload: {
+          name: formData.name!,
+          nameSwahili: formData.nameSwahili || formData.name!,
+          category: formData.category as ProductCategory,
+          sku: formData.sku!,
+          quantity: formData.quantity || 0,
+          minStockLevel: formData.minStockLevel || 10,
+          buyingPrice: formData.buyingPrice || 0,
+          sellingPrice: formData.sellingPrice || 0,
+          expiryDate: formData.expiryDate ? new Date(formData.expiryDate).toISOString() : undefined,
+          batchNumber: formData.batchNumber || '',
+          supplierId: formData.supplierId || '',
+        }
+      }, {
+        onSuccess: () => {
+          setShowProductModal(false);
+          setFormData({
+            name: '',
+            nameSwahili: '',
+            category: 'seeds',
+            sku: '',
+            quantity: 0,
+            minStockLevel: 10,
+            buyingPrice: 0,
+            sellingPrice: 0,
+            expiryDate: '',
+            batchNumber: '',
+            supplierId: '',
+          });
+        }
+      });
     } else {
-      const newProduct: Product = {
-        id: Date.now().toString(36) + Math.random().toString(36).substr(2),
+      createProductMutation.mutate({
         name: formData.name!,
         nameSwahili: formData.nameSwahili || formData.name!,
         category: formData.category as ProductCategory,
@@ -136,24 +167,37 @@ const Inventory: React.FC = () => {
         minStockLevel: formData.minStockLevel || 10,
         buyingPrice: formData.buyingPrice || 0,
         sellingPrice: formData.sellingPrice || 0,
-        expiryDate: formData.expiryDate ? new Date(formData.expiryDate).toISOString() : null,
+        expiryDate: formData.expiryDate ? new Date(formData.expiryDate).toISOString() : undefined,
         batchNumber: formData.batchNumber || '',
         supplierId: formData.supplierId || '',
-        createdAt: now,
-        updatedAt: now,
-      };
-      addProduct(newProduct);
-      toast.success(language === 'sw' ? 'Bidhaa imeongezwa' : 'Product added');
+      }, {
+        onSuccess: () => {
+          setShowProductModal(false);
+          setFormData({
+            name: '',
+            nameSwahili: '',
+            category: 'seeds',
+            sku: '',
+            quantity: 0,
+            minStockLevel: 10,
+            buyingPrice: 0,
+            sellingPrice: 0,
+            expiryDate: '',
+            batchNumber: '',
+            supplierId: '',
+          });
+        }
+      });
     }
-
-    setShowProductModal(false);
   };
 
   const handleDelete = () => {
     if (showDeleteConfirm) {
-      removeProduct(showDeleteConfirm.id);
-      toast.success(language === 'sw' ? 'Bidhaa imefutwa' : 'Product deleted');
-      setShowDeleteConfirm(null);
+      deleteProductMutation.mutate(showDeleteConfirm._id, {
+        onSuccess: () => {
+          setShowDeleteConfirm(null);
+        }
+      });
     }
   };
 
