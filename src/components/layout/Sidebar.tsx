@@ -47,12 +47,12 @@ const AppSidebar: React.FC = () => {
     <Sidebar collapsible="icon">
       <SidebarHeader className="border-b border-sidebar-border">
         <div className="flex items-center gap-2 px-2 py-4">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-green-500">
             <Leaf className="h-5 w-5 text-primary-foreground" />
           </div>
           {!collapsed && (
             <div className="flex flex-col">
-              <span className="font-semibold text-sidebar-foreground">Agrovet</span>
+              <span className="font-semibold text-sidebar-foreground">Tiana</span>
               <span className="text-xs text-sidebar-foreground/70">POS System</span>
             </div>
           )}
@@ -71,8 +71,8 @@ const AppSidebar: React.FC = () => {
                     isActive={isActive(item.url)}
                     tooltip={item.title}
                   >
-                    <Link to={item.url} className="flex items-center gap-2">
-                      <item.icon className="h-4 w-4" />
+                    <Link to={item.url} className="flex items-center gap-2 bg-green-500 hover:bg-green-100 text-white rounded-md px-2 py-1">
+                      <item.icon className="h-4 w-4"  />
                       <span>{item.title}</span>
                     </Link>
                   </SidebarMenuButton>
@@ -87,7 +87,7 @@ const AppSidebar: React.FC = () => {
         <div className="px-2 py-4">
           {!collapsed && (
             <p className="text-xs text-sidebar-foreground/50 text-center">
-              © 2024 Agrovet POS
+              © {new Date().getFullYear()}  Tiana Agrovet. All rights reserved.
             </p>
           )}
         </div>
