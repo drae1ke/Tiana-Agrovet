@@ -1,7 +1,7 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useProducts } from '@/hooks/useProducts';
-import { useCreateSale } from '@/hooks/useApi';
+import { useCreateSale, useTransactionStatus } from '@/hooks/useApi';
 import { Product } from '@/api/products';
 import { Sale } from '@/api/sales';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
@@ -11,7 +11,18 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import { Search, ShoppingCart, Plus, Minus, Trash2, CreditCard, Smartphone, CheckCircle, Printer, Loader2 } from 'lucide-react';
+import {
+  Search,
+  ShoppingCart,
+  Plus,
+  Minus,
+  Trash2,
+  CreditCard,
+  Smartphone,
+  CheckCircle,
+  Printer,
+  Loader2,
+} from 'lucide-react';
 import { toast } from 'sonner';
 
 interface CartItem {
@@ -24,6 +35,14 @@ interface CartItem {
   maxQty: number;
 }
 
+interface PendingMpesaPayment {
+  sale: Sale;
+  checkoutRequestId: string;
+  startedAt: number;
+}
+
+const MPESA_TIMEOUT_MS = 90_000;
+
 const POS: React.FC = () => {
   const { t, language } = useLanguage();
   const [searchQuery, setSearchQuery] = useState('');
@@ -33,11 +52,18 @@ const POS: React.FC = () => {
   const [customerPhone, setCustomerPhone] = useState('');
   const [showReceipt, setShowReceipt] = useState(false);
   const [lastSale, setLastSale] = useState<Sale | null>(null);
+  const [pendingMpesaPayment, setPendingMpesaPayment] = useState<PendingMpesaPayment | null>(null);
+  const [paymentFailureMessage, setPaymentFailureMessage] = useState<string | null>(null);
 
   const { data } = useProducts({ limit: 200 });
   const createSale = useCreateSale();
+  const transactionStatus = useTransactionStatus(
+    pendingMpesaPayment?.checkoutRequestId ?? null,
+    !!pendingMpesaPayment
+  );
 
   const products = (data?.data ?? []).filter((p) => p.quantity > 0);
+  const isSaleLocked = createSale.isPending || !!pendingMpesaPayment;
 
   const filtered = useMemo(() => {
     if (!searchQuery) return products;
@@ -52,7 +78,79 @@ const POS: React.FC = () => {
 
   const cartTotal = cart.reduce((s, i) => s + i.total, 0);
 
+  const finalizeSuccessfulSale = (sale: Sale) => {
+    setLastSale(sale);
+    setCart([]);
+    setCustomerPhone('');
+    setPaymentMethod('cash');
+    setShowPayment(false);
+    setShowReceipt(true);
+    setPaymentFailureMessage(null);
+  };
+
+  const handlePaymentFailure = (message: string) => {
+    setPendingMpesaPayment(null);
+    setLastSale(null);
+    setShowPayment(false);
+    setPaymentFailureMessage(message);
+    toast.error(message);
+  };
+
+  useEffect(() => {
+    if (!pendingMpesaPayment || !transactionStatus.data) return;
+
+    const { transaction } = transactionStatus.data;
+
+    if (transaction.status === 'paid') {
+      const paidSale: Sale = {
+        ...pendingMpesaPayment.sale,
+        status: 'completed',
+        mpesaRef: transaction.receiptNumber || pendingMpesaPayment.sale.mpesaRef,
+      };
+
+      setPendingMpesaPayment(null);
+      finalizeSuccessfulSale(paidSale);
+      toast.success(language === 'sw' ? 'Malipo ya M-Pesa yamethibitishwa' : 'M-Pesa payment confirmed');
+      return;
+    }
+
+    if (transaction.status === 'failed') {
+      const failureMessage =
+        transaction.failureReason ||
+        (language === 'sw' ? 'Malipo ya M-Pesa hayakufaulu.' : 'M-Pesa payment failed.');
+      handlePaymentFailure(failureMessage);
+    }
+  }, [pendingMpesaPayment, transactionStatus.data, language]);
+
+  useEffect(() => {
+    if (!pendingMpesaPayment) return;
+
+    const timeoutMessage =
+      language === 'sw'
+        ? 'Muda wa kusubiri uthibitisho wa M-Pesa umeisha. Tafadhali hakikisha hali ya muamala kabla ya kujaribu tena.'
+        : 'M-Pesa confirmation timed out after 90 seconds. Please confirm the transaction status before retrying.';
+    const remainingMs = pendingMpesaPayment.startedAt + MPESA_TIMEOUT_MS - Date.now();
+
+    if (remainingMs <= 0) {
+      handlePaymentFailure(timeoutMessage);
+      return;
+    }
+
+    const timeoutId = window.setTimeout(async () => {
+      const result = await transactionStatus.refetch();
+      const finalStatus = result.data?.transaction.status;
+
+      if (finalStatus === 'paid' || finalStatus === 'failed') return;
+
+      handlePaymentFailure(timeoutMessage);
+    }, remainingMs);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [pendingMpesaPayment, language, transactionStatus.refetch]);
+
   const addToCart = (product: Product) => {
+    if (isSaleLocked) return;
+
     setCart((prev) => {
       const existing = prev.find((i) => i.productId === product._id);
       if (existing) {
@@ -82,6 +180,8 @@ const POS: React.FC = () => {
   };
 
   const updateQty = (productId: string, delta: number) => {
+    if (isSaleLocked) return;
+
     setCart((prev) =>
       prev
         .map((i) => {
@@ -99,19 +199,47 @@ const POS: React.FC = () => {
   };
 
   const processPayment = async () => {
-    if (paymentMethod === 'mpesa' && !customerPhone) {
+    if (paymentMethod === 'mpesa' && !customerPhone.trim()) {
       toast.error(language === 'sw' ? 'Ingiza nambari ya simu' : 'Enter phone number');
       return;
     }
+
     try {
-      const sale = await createSale.mutateAsync({
+      const result = await createSale.mutateAsync({
         items: cart.map((i) => ({ productId: i.productId, quantity: i.quantity })),
         paymentMethod,
-        customerPhone: paymentMethod === 'mpesa' ? customerPhone : undefined,
+        customerPhone: paymentMethod === 'mpesa' ? customerPhone.trim() : undefined,
       });
-      setLastSale(sale);
-      setShowPayment(false);
-      setShowReceipt(true);
+
+      if (result.requiresPayment) {
+        if (!result.checkoutRequestId) {
+          toast.error(
+            language === 'sw'
+              ? 'Muamala wa M-Pesa haukuwa na nambari ya kufuatilia.'
+              : 'M-Pesa payment started without a checkout tracking ID.'
+          );
+          return;
+        }
+
+        setShowPayment(false);
+        setShowReceipt(false);
+        setLastSale(null);
+        setPaymentFailureMessage(null);
+        setPendingMpesaPayment({
+          sale: result.sale,
+          checkoutRequestId: result.checkoutRequestId,
+          startedAt: Date.now(),
+        });
+        toast.success(
+          result.message ||
+            (language === 'sw'
+              ? 'Ombi la STK limetumwa. Angalia simu ya mteja.'
+              : 'STK push sent. Check the customer phone.')
+        );
+        return;
+      }
+
+      finalizeSuccessfulSale(result.sale);
       toast.success(t('paymentSuccessful'));
     } catch {
       // error toast handled by mutation
@@ -122,8 +250,11 @@ const POS: React.FC = () => {
     setCart([]);
     setCustomerPhone('');
     setPaymentMethod('cash');
+    setShowPayment(false);
     setShowReceipt(false);
     setLastSale(null);
+    setPendingMpesaPayment(null);
+    setPaymentFailureMessage(null);
   };
 
   return (
@@ -134,25 +265,40 @@ const POS: React.FC = () => {
           <CardHeader className="pb-2">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input placeholder={t('searchProducts')} value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)} className="pl-10" />
+              <Input
+                placeholder={t('searchProducts')}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10"
+              />
             </div>
           </CardHeader>
           <CardContent className="flex-1 overflow-auto">
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {filtered.map((p) => (
-                <Card key={p._id} className="cursor-pointer hover:border-primary transition-colors"
-                  onClick={() => addToCart(p)}>
+                <Card
+                  key={p._id}
+                  className={`transition-colors ${
+                    isSaleLocked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:border-primary'
+                  }`}
+                  onClick={() => addToCart(p)}
+                >
                   <CardContent className="p-4">
                     <div className="flex justify-between items-start mb-2">
-                      <Badge variant="secondary" className="text-xs">{t(p.category)}</Badge>
-                      <Badge variant="outline" className="text-xs">{p.quantity} {language === 'sw' ? 'zilizo' : 'in stock'}</Badge>
+                      <Badge variant="secondary" className="text-xs">
+                        {t(p.category)}
+                      </Badge>
+                      <Badge variant="outline" className="text-xs">
+                        {p.quantity} {language === 'sw' ? 'zilizo' : 'in stock'}
+                      </Badge>
                     </div>
                     <h3 className="font-medium text-sm mb-1 line-clamp-2">
                       {language === 'sw' ? p.nameSwahili : p.name}
                     </h3>
                     <p className="text-xs text-muted-foreground mb-2">SKU: {p.sku}</p>
-                    <p className="font-bold text-primary">{t('ksh')} {p.sellingPrice.toLocaleString()}</p>
+                    <p className="font-bold text-primary">
+                      {t('ksh')} {p.sellingPrice.toLocaleString()}
+                    </p>
                   </CardContent>
                 </Card>
               ))}
@@ -169,14 +315,16 @@ const POS: React.FC = () => {
         <Card className="flex-1 flex flex-col">
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2">
-              <ShoppingCart className="h-5 w-5" />{t('cart')}
+              <ShoppingCart className="h-5 w-5" />
+              {t('cart')}
               {cart.length > 0 && <Badge variant="secondary">{cart.length}</Badge>}
             </CardTitle>
           </CardHeader>
           <CardContent className="flex-1 overflow-auto">
             {cart.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-                <ShoppingCart className="h-12 w-12 mb-2 opacity-50" /><p>{t('emptyCart')}</p>
+                <ShoppingCart className="h-12 w-12 mb-2 opacity-50" />
+                <p>{t('emptyCart')}</p>
               </div>
             ) : (
               <div className="space-y-3">
@@ -187,19 +335,36 @@ const POS: React.FC = () => {
                         {language === 'sw' ? item.nameSwahili : item.name}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        {t('ksh')} {item.unitPrice.toLocaleString()} × {item.quantity}
+                        {t('ksh')} {item.unitPrice.toLocaleString()} x {item.quantity}
                       </p>
                     </div>
                     <div className="flex items-center gap-1">
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => updateQty(item.productId, -1)}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => updateQty(item.productId, -1)}
+                        disabled={isSaleLocked}
+                      >
                         <Minus className="h-3 w-3" />
                       </Button>
                       <span className="w-6 text-center text-sm">{item.quantity}</span>
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => updateQty(item.productId, 1)}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => updateQty(item.productId, 1)}
+                        disabled={isSaleLocked}
+                      >
                         <Plus className="h-3 w-3" />
                       </Button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive"
-                        onClick={() => setCart((c) => c.filter((i) => i.productId !== item.productId))}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-destructive"
+                        onClick={() => setCart((c) => c.filter((i) => i.productId !== item.productId))}
+                        disabled={isSaleLocked}
+                      >
                         <Trash2 className="h-3 w-3" />
                       </Button>
                     </div>
@@ -214,13 +379,20 @@ const POS: React.FC = () => {
           <CardFooter className="flex-col gap-3 border-t pt-4">
             <div className="flex justify-between w-full text-lg font-bold">
               <span>{t('total')}</span>
-              <span>{t('ksh')} {cartTotal.toLocaleString()}</span>
+              <span>
+                {t('ksh')} {cartTotal.toLocaleString()}
+              </span>
             </div>
             <div className="flex gap-2 w-full">
-              <Button variant="outline" className="flex-1" onClick={() => setCart([])} disabled={!cart.length}>
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => setCart([])}
+                disabled={!cart.length || isSaleLocked}
+              >
                 {t('clearCart')}
               </Button>
-              <Button className="flex-1" onClick={() => setShowPayment(true)} disabled={!cart.length}>
+              <Button className="flex-1" onClick={() => setShowPayment(true)} disabled={!cart.length || isSaleLocked}>
                 {t('checkout')}
               </Button>
             </div>
@@ -229,37 +401,110 @@ const POS: React.FC = () => {
       </div>
 
       {/* Payment Modal */}
-      <Dialog open={showPayment} onOpenChange={setShowPayment}>
+      <Dialog open={showPayment} onOpenChange={(open) => !createSale.isPending && setShowPayment(open)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('payment')}</DialogTitle>
-            <DialogDescription>{t('total')}: {t('ksh')} {cartTotal.toLocaleString()}</DialogDescription>
+            <DialogDescription>
+              {t('total')}: {t('ksh')} {cartTotal.toLocaleString()}
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
-              <Button variant={paymentMethod === 'cash' ? 'default' : 'outline'}
-                className="h-20 flex-col gap-2" onClick={() => setPaymentMethod('cash')}>
-                <CreditCard className="h-6 w-6" />{t('cash')}
+              <Button
+                variant={paymentMethod === 'cash' ? 'default' : 'outline'}
+                className="h-20 flex-col gap-2"
+                onClick={() => setPaymentMethod('cash')}
+                disabled={createSale.isPending}
+              >
+                <CreditCard className="h-6 w-6" />
+                {t('cash')}
               </Button>
-              <Button variant={paymentMethod === 'mpesa' ? 'default' : 'outline'}
-                className="h-20 flex-col gap-2" onClick={() => setPaymentMethod('mpesa')}>
-                <Smartphone className="h-6 w-6" />{t('mpesa')}
+              <Button
+                variant={paymentMethod === 'mpesa' ? 'default' : 'outline'}
+                className="h-20 flex-col gap-2"
+                onClick={() => setPaymentMethod('mpesa')}
+                disabled={createSale.isPending}
+              >
+                <Smartphone className="h-6 w-6" />
+                {t('mpesa')}
               </Button>
             </div>
             {paymentMethod === 'mpesa' && (
               <div className="space-y-2">
                 <Label htmlFor="phone">{t('customerPhone')}</Label>
-                <Input id="phone" placeholder="07XX XXX XXX" value={customerPhone}
-                  onChange={(e) => setCustomerPhone(e.target.value)} />
+                <Input
+                  id="phone"
+                  placeholder="07XX XXX XXX"
+                  value={customerPhone}
+                  onChange={(e) => setCustomerPhone(e.target.value)}
+                  disabled={createSale.isPending}
+                />
               </div>
             )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowPayment(false)}>{t('cancel')}</Button>
+            <Button variant="outline" onClick={() => setShowPayment(false)} disabled={createSale.isPending}>
+              {t('cancel')}
+            </Button>
             <Button onClick={processPayment} disabled={createSale.isPending}>
               {createSale.isPending ? (
-                <><Loader2 className="h-4 w-4 mr-2 animate-spin" />{t('loading')}</>
-              ) : t('processPayment')}
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  {t('loading')}
+                </>
+              ) : (
+                t('processPayment')
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Pending M-Pesa Modal */}
+      <Dialog open={!!pendingMpesaPayment}>
+        <DialogContent
+          className="max-w-md [&>button]:hidden"
+          onEscapeKeyDown={(event) => event.preventDefault()}
+          onInteractOutside={(event) => event.preventDefault()}
+        >
+          <DialogHeader>
+            <DialogTitle>
+              {language === 'sw' ? 'Inasubiri uthibitisho wa M-Pesa...' : 'Waiting for M-Pesa confirmation...'}
+            </DialogTitle>
+            <DialogDescription>
+              {language === 'sw'
+                ? 'Tunathibitisha muamala kila sekunde 5 kwa hadi sekunde 90.'
+                : 'We are checking the transaction every 5 seconds for up to 90 seconds.'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="flex justify-center">
+              <div className="rounded-full bg-primary/10 p-4">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              </div>
+            </div>
+            <div className="text-center space-y-2">
+              <p className="text-sm text-muted-foreground">
+                {language === 'sw'
+                  ? 'Mteja akubali ombi la STK kwenye simu yake ili mauzo yakamilike.'
+                  : 'Ask the customer to approve the STK prompt on their phone to complete the sale.'}
+              </p>
+              {pendingMpesaPayment?.sale.customerPhone && (
+                <p className="text-sm font-medium">{pendingMpesaPayment.sale.customerPhone}</p>
+              )}
+              {transactionStatus.isError && (
+                <p className="text-xs text-muted-foreground">
+                  {language === 'sw'
+                    ? 'Bado tunajaribu kuangalia hali ya muamala.'
+                    : 'Still retrying transaction status checks.'}
+                </p>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" disabled>
+              {t('newSale')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -270,7 +515,8 @@ const POS: React.FC = () => {
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <CheckCircle className="h-5 w-5 text-green-500" />{t('paymentSuccessful')}
+              <CheckCircle className="h-5 w-5 text-green-500" />
+              {t('paymentSuccessful')}
             </DialogTitle>
           </DialogHeader>
           {lastSale && (
@@ -283,25 +529,60 @@ const POS: React.FC = () => {
               <div className="space-y-2">
                 {lastSale.items.map((item, i) => (
                   <div key={i} className="flex justify-between text-sm">
-                    <span>{language === 'sw' ? item.nameSwahili : item.name} × {item.quantity}</span>
-                    <span>{t('ksh')} {item.total.toLocaleString()}</span>
+                    <span>
+                      {language === 'sw' ? item.nameSwahili : item.name} x {item.quantity}
+                    </span>
+                    <span>
+                      {t('ksh')} {item.total.toLocaleString()}
+                    </span>
                   </div>
                 ))}
               </div>
               <Separator />
               <div className="flex justify-between font-bold">
                 <span>{t('total')}</span>
-                <span>{t('ksh')} {lastSale.total.toLocaleString()}</span>
+                <span>
+                  {t('ksh')} {lastSale.total.toLocaleString()}
+                </span>
               </div>
               <div className="text-sm space-y-1">
-                <p>{t('payment')}: {lastSale.paymentMethod === 'mpesa' ? 'M-Pesa' : t('cash')}</p>
-                {lastSale.mpesaRef && <p>{t('transactionRef')}: {lastSale.mpesaRef}</p>}
+                <p>
+                  {t('payment')}: {lastSale.paymentMethod === 'mpesa' ? 'M-Pesa' : t('cash')}
+                </p>
+                {lastSale.mpesaRef && (
+                  <p>
+                    {t('transactionRef')}: {lastSale.mpesaRef}
+                  </p>
+                )}
               </div>
             </div>
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => window.print()}>
-              <Printer className="h-4 w-4 mr-2" />{t('printReceipt')}
+              <Printer className="h-4 w-4 mr-2" />
+              {t('printReceipt')}
+            </Button>
+            <Button onClick={newSale}>{t('newSale')}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Failure Modal */}
+      <Dialog open={!!paymentFailureMessage} onOpenChange={(open) => !open && setPaymentFailureMessage(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{language === 'sw' ? 'Malipo ya M-Pesa hayajakamilika' : 'M-Pesa payment not completed'}</DialogTitle>
+            <DialogDescription>
+              {paymentFailureMessage}
+              {' '}
+              {language === 'sw'
+                ? 'Funga ujumbe huu ili ujaribu tena kwa kikapu hiki hiki.'
+                : 'Close this message to retry with the same cart.'}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPaymentFailureMessage(null)}>
+              {t('cancel')}
             </Button>
             <Button onClick={newSale}>{t('newSale')}</Button>
           </DialogFooter>

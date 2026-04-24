@@ -62,7 +62,7 @@ const Orders: React.FC = () => {
 
   const handleStatusChange = (order: PurchaseOrder, newStatus: OrderStatus) => {
     updateOrderStatusMutation.mutate(
-      { id: order._id, status: newStatus },
+      { id: order.id, status: newStatus },
       {
         onSuccess: () => {
           setShowOrderDetails(null);
@@ -205,7 +205,7 @@ const Orders: React.FC = () => {
               )}
             </DialogTitle>
             <DialogDescription>
-              #{showOrderDetails?.id.slice(0, 8).toUpperCase()}
+              #{showOrderDetails?._id.slice(0, 8).toUpperCase()}
             </DialogDescription>
           </DialogHeader>
           

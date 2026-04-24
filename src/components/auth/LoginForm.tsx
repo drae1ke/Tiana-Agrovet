@@ -112,19 +112,6 @@ const LoginForm: React.FC = () => {
                 {isSubmitting ? t('loading') : t('login')}
               </Button>
             </form>
-            
-            {/* Demo credentials hint */}
-            <div className="mt-6 rounded-lg bg-muted p-4 text-sm">
-              <p className="font-medium text-muted-foreground mb-2">
-                {language === 'en' ? 'Demo Credentials:' : 'Taarifa za Majaribio:'}
-              </p>
-              <p className="text-muted-foreground">
-                {t('username')}: <code className="bg-background px-1 rounded">admin</code>
-              </p>
-              <p className="text-muted-foreground">
-                {t('password')}: <code className="bg-background px-1 rounded">admin123</code>
-              </p>
-            </div>
           </CardContent>
         </Card>
       </div>

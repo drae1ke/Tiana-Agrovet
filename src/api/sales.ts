@@ -15,6 +15,7 @@ export interface Sale {
   subtotal: number;
   total: number;
   paymentMethod: 'cash' | 'mpesa';
+  status?: 'pending' | 'completed' | 'cancelled';
   mpesaRef?: string;
   customerPhone?: string;
   processedBy?: { _id: string; username: string };
@@ -25,6 +26,22 @@ export interface CreateSalePayload {
   items: { productId: string; quantity: number }[];
   paymentMethod: 'cash' | 'mpesa';
   customerPhone?: string;
+}
+
+export interface CreateSaleResponse {
+  sale: Sale;
+  requiresPayment?: boolean;
+  checkoutRequestId?: string;
+  message?: string;
+}
+
+export interface TransactionStatusResponse {
+  transaction: {
+    status: 'pending' | 'paid' | 'failed';
+    receiptNumber?: string;
+    failureReason?: string;
+  };
+  sale: { _id: string; status: string; total: number; itemCount: number } | null;
 }
 
 export const salesApi = {
@@ -44,9 +61,14 @@ export const salesApi = {
     return data.data;
   },
 
-  create: async (payload: CreateSalePayload): Promise<Sale> => {
+  create: async (payload: CreateSalePayload): Promise<CreateSaleResponse> => {
     const { data } = await api.post('/sales', payload);
-    return data.data;
+    return {
+      sale: data.data as Sale,
+      requiresPayment: data.requiresPayment,
+      checkoutRequestId: data.checkoutRequestId,
+      message: data.message,
+    };
   },
 
   getSummary: async (period: 'today' | 'week' | 'month' | 'year' = 'week') => {
@@ -57,5 +79,10 @@ export const salesApi = {
   getTopProducts: async (limit = 10, period = 'month') => {
     const { data } = await api.get('/sales/reports/top-products', { params: { limit, period } });
     return data.data;
+  },
+
+  getTransactionStatus: async (checkoutRequestId: string): Promise<TransactionStatusResponse> => {
+    const { data } = await api.get(`/mpesa/transaction/${checkoutRequestId}`);
+    return data;
   },
 };

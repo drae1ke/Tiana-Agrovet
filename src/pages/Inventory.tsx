@@ -39,7 +39,7 @@ import {
   Trash2,
   Package,
   AlertTriangle,
-  Clock
+  Loader2,
 } from 'lucide-react';
 import { format, parseISO, differenceInDays } from 'date-fns';
 
@@ -58,6 +58,8 @@ const Inventory: React.FC = () => {
   const createProductMutation = useCreateProduct();
   const updateProductMutation = useUpdateProduct();
   const deleteProductMutation = useDeleteProduct();
+  const isSubmitting = createProductMutation.isPending || updateProductMutation.isPending;
+  const isDeleting = deleteProductMutation.isPending;
 
   // Ensure products and suppliers are always arrays
   const products = productsData?.data || [];
@@ -320,6 +322,7 @@ const Inventory: React.FC = () => {
                           variant="ghost"
                           size="icon"
                           onClick={() => openEditModal(product)}
+                          disabled={isSubmitting || isDeleting}
                         >
                           <Edit className="h-4 w-4" />
                         </Button>
@@ -328,6 +331,7 @@ const Inventory: React.FC = () => {
                           size="icon"
                           className="text-destructive"
                           onClick={() => setShowDeleteConfirm(product)}
+                          disabled={isSubmitting || isDeleting}
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -477,11 +481,18 @@ const Inventory: React.FC = () => {
             </div>
 
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setShowProductModal(false)}>
+              <Button type="button" variant="outline" onClick={() => setShowProductModal(false)} disabled={isSubmitting}>
                 {t('cancel')}
               </Button>
-              <Button type="submit">
-                {t('save')}
+              <Button type="submit" disabled={isSubmitting}>
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    {language === 'sw' ? 'Inahifadhi...' : 'Saving...'}
+                  </>
+                ) : (
+                  t('save')
+                )}
               </Button>
             </DialogFooter>
           </form>
@@ -501,11 +512,18 @@ const Inventory: React.FC = () => {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowDeleteConfirm(null)}>
+            <Button variant="outline" onClick={() => setShowDeleteConfirm(null)} disabled={isDeleting}>
               {t('cancel')}
             </Button>
-            <Button variant="destructive" onClick={handleDelete}>
-              {t('delete')}
+            <Button variant="destructive" onClick={handleDelete} disabled={isDeleting}>
+              {isDeleting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  {language === 'sw' ? 'Inafuta...' : 'Deleting...'}
+                </>
+              ) : (
+                t('delete')
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

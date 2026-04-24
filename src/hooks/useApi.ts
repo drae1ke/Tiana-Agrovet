@@ -98,6 +98,23 @@ export const useCreateSale = () => {
   });
 };
 
+export const useTransactionStatus = (checkoutRequestId: string | null, enabled: boolean) =>
+  useQuery({
+    queryKey: ['mpesa-transaction', checkoutRequestId],
+    queryFn: () => salesApi.getTransactionStatus(checkoutRequestId!),
+    enabled: !!checkoutRequestId && enabled,
+    refetchInterval: (query) => {
+      if (!checkoutRequestId || !enabled) return false;
+      const status = query.state.data?.transaction?.status;
+      if (!status || status === 'pending') return 5000;
+      return false;
+    },
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: false,
+    staleTime: 0,
+    retry: false,
+  });
+
 // ── Orders ────────────────────────────────────────────────────────────────────
 
 export const ORDERS_KEY = 'orders';
