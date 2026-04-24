@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useProducts } from '@/hooks/useProducts';
 import { useCreateSale, useTransactionStatus } from '@/hooks/useApi';
@@ -44,6 +45,7 @@ interface PendingMpesaPayment {
 const MPESA_TIMEOUT_MS = 90_000;
 
 const POS: React.FC = () => {
+  const queryClient = useQueryClient();
   const { t, language } = useLanguage();
   const [searchQuery, setSearchQuery] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -79,6 +81,8 @@ const POS: React.FC = () => {
   const cartTotal = cart.reduce((s, i) => s + i.total, 0);
 
   const finalizeSuccessfulSale = (sale: Sale) => {
+    void queryClient.invalidateQueries({ queryKey: ['sales'] });
+    void queryClient.invalidateQueries({ queryKey: ['products'] });
     setLastSale(sale);
     setCart([]);
     setCustomerPhone('');
@@ -115,12 +119,13 @@ const POS: React.FC = () => {
     }
 
     if (transaction.status === 'failed') {
+      void queryClient.invalidateQueries({ queryKey: ['sales'] });
       const failureMessage =
         transaction.failureReason ||
         (language === 'sw' ? 'Malipo ya M-Pesa hayakufaulu.' : 'M-Pesa payment failed.');
       handlePaymentFailure(failureMessage);
     }
-  }, [pendingMpesaPayment, transactionStatus.data, language]);
+  }, [pendingMpesaPayment, queryClient, transactionStatus.data, language]);
 
   useEffect(() => {
     if (!pendingMpesaPayment) return;
