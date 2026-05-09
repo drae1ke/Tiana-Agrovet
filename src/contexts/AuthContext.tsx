@@ -1,11 +1,19 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import type { AxiosError } from 'axios';
 import { authApi, AdminUser } from '@/api/auth';
+
+type LoginFailureReason = 'invalid_credentials' | 'unavailable';
+
+interface LoginResult {
+  success: boolean;
+  reason?: LoginFailureReason;
+}
 
 interface AuthContextType {
   admin: AdminUser | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (username: string, password: string) => Promise<boolean>;
+  login: (username: string, password: string) => Promise<LoginResult>;
   logout: () => Promise<void>;
 }
 
@@ -38,7 +46,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     restoreSession();
   }, []);
 
-  const login = async (username: string, password: string): Promise<boolean> => {
+  const login = async (username: string, password: string): Promise<LoginResult> => {
     try {
       const { admin: adminData, accessToken, refreshToken } = await authApi.login({
         username,
@@ -48,9 +56,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       localStorage.setItem('refreshToken', refreshToken);
       localStorage.setItem('admin', JSON.stringify(adminData));
       setAdmin(adminData);
-      return true;
-    } catch {
-      return false;
+      return { success: true };
+    } catch (error) {
+      const status = (error as AxiosError)?.response?.status;
+      return {
+        success: false,
+        reason: status === 401 ? 'invalid_credentials' : 'unavailable',
+      };
     }
   };
 

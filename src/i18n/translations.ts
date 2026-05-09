@@ -130,7 +130,9 @@ export const translations = {
     login: 'Login',
     username: 'Username',
     password: 'Password',
+    loginLoading: 'Signing in...',
     loginError: 'Invalid username or password',
+    loginUnavailable: 'Unable to sign in right now. Please check your connection and try again.',
     sessionExpired: 'Session expired. Please login again.',
     
     // Common
@@ -287,7 +289,9 @@ export const translations = {
     login: 'Ingia',
     username: 'Jina la Mtumiaji',
     password: 'Neno la Siri',
+    loginLoading: 'Inaingia...',
     loginError: 'Jina au neno la siri si sahihi',
+    loginUnavailable: 'Haiwezi kuingia sasa. Tafadhali hakikisha intaneti iko sawa na ujaribu tena.',
     sessionExpired: 'Kipindi kimeisha. Tafadhali ingia tena.',
     
     // Common

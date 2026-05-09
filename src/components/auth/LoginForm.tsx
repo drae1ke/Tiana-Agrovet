@@ -7,12 +7,14 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Leaf, Globe, AlertCircle } from 'lucide-react';
+import { Leaf, Globe, AlertCircle, Loader2 } from 'lucide-react';
+
+type LoginErrorKey = 'loginError' | 'loginUnavailable';
 
 const LoginForm: React.FC = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
+  const [errorKey, setErrorKey] = useState<LoginErrorKey | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   
   const { login } = useAuth();
@@ -21,24 +23,38 @@ const LoginForm: React.FC = () => {
   const location = useLocation();
 
   const from = location.state?.from?.pathname || '/';
+  const hasError = Boolean(errorKey);
+  const errorId = 'login-error';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
+    setErrorKey(null);
     setIsSubmitting(true);
 
-    // Simulate network delay
-    await new Promise(resolve => setTimeout(resolve, 500));
+    try {
+      const result = await login(username.trim(), password);
 
-    const success = login(username, password);
-    
-    if (success) {
-      navigate(from, { replace: true });
-    } else {
-      setError(t('loginError'));
+      if (result.success) {
+        navigate(from, { replace: true });
+        return;
+      }
+
+      setErrorKey(
+        result.reason === 'invalid_credentials' ? 'loginError' : 'loginUnavailable'
+      );
+    } finally {
+      setIsSubmitting(false);
     }
-    
-    setIsSubmitting(false);
+  };
+
+  const handleUsernameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setUsername(e.target.value);
+    setErrorKey(null);
+  };
+
+  const handlePasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setPassword(e.target.value);
+    setErrorKey(null);
   };
 
   const toggleLanguage = () => {
@@ -54,6 +70,7 @@ const LoginForm: React.FC = () => {
             variant="outline"
             size="sm"
             onClick={toggleLanguage}
+            disabled={isSubmitting}
             className="flex items-center gap-2"
           >
             <Globe className="h-4 w-4" />
@@ -74,11 +91,11 @@ const LoginForm: React.FC = () => {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              {error && (
-                <Alert variant="destructive">
+            <form onSubmit={handleSubmit} className="space-y-4" aria-busy={isSubmitting}>
+              {errorKey && (
+                <Alert id={errorId} variant="destructive" aria-live="assertive">
                   <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>{error}</AlertDescription>
+                  <AlertDescription>{t(errorKey)}</AlertDescription>
                 </Alert>
               )}
               
@@ -88,10 +105,12 @@ const LoginForm: React.FC = () => {
                   id="username"
                   type="text"
                   value={username}
-                  onChange={(e) => setUsername(e.target.value)}
+                  onChange={handleUsernameChange}
                   placeholder={language === 'en' ? 'Enter username' : 'Ingiza jina'}
                   required
                   disabled={isSubmitting}
+                  aria-invalid={hasError}
+                  aria-describedby={hasError ? errorId : undefined}
                 />
               </div>
               
@@ -101,15 +120,18 @@ const LoginForm: React.FC = () => {
                   id="password"
                   type="password"
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={handlePasswordChange}
                   placeholder={language === 'en' ? 'Enter password' : 'Ingiza neno la siri'}
                   required
                   disabled={isSubmitting}
+                  aria-invalid={hasError}
+                  aria-describedby={hasError ? errorId : undefined}
                 />
               </div>
               
-              <Button type="submit" className="w-full" disabled={isSubmitting}>
-                {isSubmitting ? t('loading') : t('login')}
+              <Button type="submit" className="w-full" disabled={isSubmitting} aria-live="polite">
+                {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
+                {isSubmitting ? t('loginLoading') : t('login')}
               </Button>
             </form>
           </CardContent>
