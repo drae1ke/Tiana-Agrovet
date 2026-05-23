@@ -263,16 +263,17 @@ const sampleProducts: Product[] = [
   },
 ];
 
-export const initializeSeedData = (): void => {
-  // Check if data already exists
-  const existingProducts = getProducts();
-  const existingSuppliers = getSuppliers();
+export const initializeSeedData = async (): Promise<void> => {
+  const [existingProducts, existingSuppliers] = await Promise.all([
+    getProducts(),
+    getSuppliers(),
+  ]);
 
   if (existingSuppliers.length === 0) {
-    saveSuppliers(sampleSuppliers);
+    saveSuppliers();
   }
 
   if (existingProducts.length === 0) {
-    saveProducts(sampleProducts);
+    saveProducts();
   }
 };

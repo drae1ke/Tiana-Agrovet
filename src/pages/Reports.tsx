@@ -1,5 +1,7 @@
 import React, { useState, useMemo } from 'react';
+import { jsPDF } from 'jspdf';
 import { useLanguage } from '@/contexts/LanguageContext';
+import type { TranslationKey } from '@/i18n/translations';
 import { useProducts } from '@/hooks/useProducts';
 import { useSales } from '@/hooks/useApi';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -36,6 +38,7 @@ import {
 } from 'recharts';
 
 const COLORS = ['hsl(var(--primary))', 'hsl(142, 76%, 36%)', 'hsl(45, 93%, 47%)', 'hsl(0, 84%, 60%)', 'hsl(280, 65%, 60%)'];
+type ReportRow = Record<string, string | number>;
 
 const Reports: React.FC = () => {
   const { t, language } = useLanguage();
@@ -44,10 +47,9 @@ const Reports: React.FC = () => {
   const { data: salesData, isLoading: salesLoading } = useSales({ limit: 500 });
   const { data: productsData, isLoading: productsLoading } = useProducts({ limit: 200 });
 
-  // Ensure data is always an array
-  const sales = salesData?.data || [];
-  const products = productsData?.data || [];
-  const today = new Date();
+  const sales = useMemo(() => salesData?.data ?? [], [salesData?.data]);
+  const products = useMemo(() => productsData?.data ?? [], [productsData?.data]);
+  const today = useMemo(() => new Date(), []);
 
   // Sales by category
   const salesByCategory = useMemo(() => {
@@ -55,7 +57,7 @@ const Reports: React.FC = () => {
     
     sales.forEach(sale => {
       sale.items.forEach(item => {
-        const product = products.find(p => p.id === item.productId);
+        const product = products.find(p => p._id === item.productId);
         if (product) {
           const current = categoryMap.get(product.category) || 0;
           categoryMap.set(product.category, current + item.total);
@@ -64,7 +66,7 @@ const Reports: React.FC = () => {
     });
 
     return Array.from(categoryMap.entries()).map(([name, value]) => ({
-      name: t(name as any),
+      name: t(name as TranslationKey),
       value,
     }));
   }, [sales, products, t]);
@@ -123,8 +125,9 @@ const Reports: React.FC = () => {
   }
 
   const exportReport = (type: string) => {
-    let data: any[] = [];
+    let data: ReportRow[] = [];
     let filename = '';
+    let title = '';
 
     switch (type) {
       case 'sales':
@@ -135,7 +138,8 @@ const Reports: React.FC = () => {
           Payment: s.paymentMethod,
           Reference: s.mpesaRef || '-',
         }));
-        filename = 'sales-report.json';
+        filename = 'sales-report.pdf';
+        title = t('salesReport');
         break;
       case 'inventory':
         data = products.map(p => ({
@@ -148,7 +152,8 @@ const Reports: React.FC = () => {
           SellingPrice: p.sellingPrice,
           ExpiryDate: p.expiryDate || '-',
         }));
-        filename = 'inventory-report.json';
+        filename = 'inventory-report.pdf';
+        title = t('inventoryReport');
         break;
       case 'expiry':
         data = expiringProducts.map(p => ({
@@ -158,16 +163,52 @@ const Reports: React.FC = () => {
           ExpiryDate: format(parseISO(p.expiryDate!), 'yyyy-MM-dd'),
           DaysLeft: p.daysUntilExpiry,
         }));
-        filename = 'expiry-report.json';
+        filename = 'expiry-report.pdf';
+        title = t('expiryReport');
         break;
     }
 
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.click();
+    const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+    const margin = 40;
+    const lineHeight = 16;
+    let y = 60;
+
+    doc.setFontSize(18);
+    doc.text(title, margin, y);
+    y += lineHeight * 1.5;
+
+    if (data.length === 0) {
+      doc.setFontSize(12);
+      doc.text('No data available', margin, y);
+      doc.save(filename);
+      return;
+    }
+
+    const columns = Object.keys(data[0]);
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+
+    columns.forEach((column, index) => {
+      doc.text(column, margin + index * 90, y);
+    });
+
+    y += lineHeight;
+    doc.setFont('helvetica', 'normal');
+
+    data.forEach((row, rowIndex) => {
+      columns.forEach((column, index) => {
+        const cellText = String(row[column] ?? '');
+        doc.text(cellText, margin + index * 90, y, { maxWidth: 85 });
+      });
+
+      y += lineHeight;
+      if (y > 760 && rowIndex < data.length - 1) {
+        doc.addPage();
+        y = margin;
+      }
+    });
+
+    doc.save(filename);
   };
 
   return (
@@ -296,7 +337,7 @@ const Reports: React.FC = () => {
                   </TableHeader>
                   <TableBody>
                     {lowStockProducts.map((product) => (
-                      <TableRow key={product.id}>
+                      <TableRow key={product._id}>
                         <TableCell className="font-medium">
                           {language === 'sw' ? product.nameSwahili : product.name}
                         </TableCell>
@@ -340,7 +381,7 @@ const Reports: React.FC = () => {
                   </TableHeader>
                   <TableBody>
                     {expiringProducts.map((product) => (
-                      <TableRow key={product.id}>
+                      <TableRow key={product._id}>
                         <TableCell className="font-medium">
                           {language === 'sw' ? product.nameSwahili : product.name}
                         </TableCell>

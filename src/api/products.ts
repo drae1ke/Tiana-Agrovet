@@ -3,6 +3,7 @@ import api from './client';
 export interface Product {
   _id: string;
   name: string;
+  imageUrl?: string;
   nameSwahili: string;
   category: 'seeds' | 'fertilizers' | 'pesticides' | 'veterinary' | 'tools';
   sku: string;
@@ -24,6 +25,7 @@ export interface Product {
 export interface ProductPayload {
   name: string;
   nameSwahili?: string;
+  imageUrl?: string;
   category: string;
   sku: string;
   quantity: number;
@@ -77,11 +79,12 @@ export const productsApi = {
     await api.delete(`/products/${id}`);
   },
 
-  restock: async (id: string, quantity: number, batchNumber?: string, expiryDate?: string): Promise<Product> => {
+  restock: async (id: string, quantity: number, batchNumber?: string, expiryDate?: string, imageUrl?: string): Promise<Product> => {
     const { data } = await api.patch(`/products/${id}/restock`, {
       quantity,
       batchNumber,
       expiryDate,
+      imageUrl,
     });
     return data.data;
   },

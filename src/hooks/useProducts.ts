@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { getApiErrorMessage } from '@/api/errors';
 import { productsApi, ProductPayload, ProductsQuery } from '@/api/products';
 import { toast } from 'sonner';
 
@@ -27,18 +28,20 @@ export const useProductStats = () =>
 
 export const useCreateProduct = () => {
   const qc = useQueryClient();
+
   return useMutation({
     mutationFn: (payload: ProductPayload) => productsApi.create(payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: [PRODUCTS_KEY] });
       toast.success('Product added successfully');
     },
-    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to add product'),
+    onError: (error: unknown) => toast.error(getApiErrorMessage(error, 'Failed to add product')),
   });
 };
 
 export const useUpdateProduct = () => {
   const qc = useQueryClient();
+
   return useMutation({
     mutationFn: ({ id, payload }: { id: string; payload: Partial<ProductPayload> }) =>
       productsApi.update(id, payload),
@@ -46,40 +49,44 @@ export const useUpdateProduct = () => {
       qc.invalidateQueries({ queryKey: [PRODUCTS_KEY] });
       toast.success('Product updated successfully');
     },
-    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to update product'),
+    onError: (error: unknown) => toast.error(getApiErrorMessage(error, 'Failed to update product')),
   });
 };
 
 export const useDeleteProduct = () => {
   const qc = useQueryClient();
+
   return useMutation({
     mutationFn: (id: string) => productsApi.delete(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: [PRODUCTS_KEY] });
       toast.success('Product deleted');
     },
-    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to delete product'),
+    onError: (error: unknown) => toast.error(getApiErrorMessage(error, 'Failed to delete product')),
   });
 };
 
 export const useRestockProduct = () => {
   const qc = useQueryClient();
+
   return useMutation({
     mutationFn: ({
       id,
       quantity,
       batchNumber,
       expiryDate,
+      imageUrl,
     }: {
       id: string;
       quantity: number;
       batchNumber?: string;
       expiryDate?: string;
-    }) => productsApi.restock(id, quantity, batchNumber, expiryDate),
+      imageUrl?: string;
+    }) => productsApi.restock(id, quantity, batchNumber, expiryDate, imageUrl),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: [PRODUCTS_KEY] });
       toast.success('Product restocked');
     },
-    onError: (err: any) => toast.error(err.response?.data?.message || 'Restock failed'),
+    onError: (error: unknown) => toast.error(getApiErrorMessage(error, 'Restock failed')),
   });
 };

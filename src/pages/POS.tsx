@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useProducts } from '@/hooks/useProducts';
@@ -59,12 +59,20 @@ const POS: React.FC = () => {
 
   const { data } = useProducts({ limit: 200 });
   const createSale = useCreateSale();
-  const transactionStatus = useTransactionStatus(
+  const transactionStatusQuery = useTransactionStatus(
     pendingMpesaPayment?.checkoutRequestId ?? null,
     !!pendingMpesaPayment
   );
+  const {
+    data: transactionStatusData,
+    isError: isTransactionStatusError,
+    refetch: refetchTransactionStatus,
+  } = transactionStatusQuery;
 
-  const products = (data?.data ?? []).filter((p) => p.quantity > 0);
+  const products = useMemo(
+    () => (data?.data ?? []).filter((product) => product.quantity > 0),
+    [data?.data]
+  );
   const isSaleLocked = createSale.isPending || !!pendingMpesaPayment;
 
   const filtered = useMemo(() => {
@@ -80,7 +88,7 @@ const POS: React.FC = () => {
 
   const cartTotal = cart.reduce((s, i) => s + i.total, 0);
 
-  const finalizeSuccessfulSale = (sale: Sale) => {
+  const finalizeSuccessfulSale = useCallback((sale: Sale) => {
     void queryClient.invalidateQueries({ queryKey: ['sales'] });
     void queryClient.invalidateQueries({ queryKey: ['products'] });
     setLastSale(sale);
@@ -90,20 +98,20 @@ const POS: React.FC = () => {
     setShowPayment(false);
     setShowReceipt(true);
     setPaymentFailureMessage(null);
-  };
+  }, [queryClient]);
 
-  const handlePaymentFailure = (message: string) => {
+  const handlePaymentFailure = useCallback((message: string) => {
     setPendingMpesaPayment(null);
     setLastSale(null);
     setShowPayment(false);
     setPaymentFailureMessage(message);
     toast.error(message);
-  };
+  }, []);
 
   useEffect(() => {
-    if (!pendingMpesaPayment || !transactionStatus.data) return;
+    if (!pendingMpesaPayment || !transactionStatusData) return;
 
-    const { transaction } = transactionStatus.data;
+    const { transaction } = transactionStatusData;
 
     if (transaction.status === 'paid') {
       const paidSale: Sale = {
@@ -125,7 +133,7 @@ const POS: React.FC = () => {
         (language === 'sw' ? 'Malipo ya M-Pesa hayakufaulu.' : 'M-Pesa payment failed.');
       handlePaymentFailure(failureMessage);
     }
-  }, [pendingMpesaPayment, queryClient, transactionStatus.data, language]);
+  }, [pendingMpesaPayment, queryClient, transactionStatusData, language, finalizeSuccessfulSale, handlePaymentFailure]);
 
   useEffect(() => {
     if (!pendingMpesaPayment) return;
@@ -142,7 +150,7 @@ const POS: React.FC = () => {
     }
 
     const timeoutId = window.setTimeout(async () => {
-      const result = await transactionStatus.refetch();
+      const result = await refetchTransactionStatus();
       const finalStatus = result.data?.transaction.status;
 
       if (finalStatus === 'paid' || finalStatus === 'failed') return;
@@ -151,7 +159,7 @@ const POS: React.FC = () => {
     }, remainingMs);
 
     return () => window.clearTimeout(timeoutId);
-  }, [pendingMpesaPayment, language, transactionStatus.refetch]);
+  }, [pendingMpesaPayment, language, refetchTransactionStatus, handlePaymentFailure]);
 
   const addToCart = (product: Product) => {
     if (isSaleLocked) return;
@@ -498,7 +506,7 @@ const POS: React.FC = () => {
               {pendingMpesaPayment?.sale.customerPhone && (
                 <p className="text-sm font-medium">{pendingMpesaPayment.sale.customerPhone}</p>
               )}
-              {transactionStatus.isError && (
+              {isTransactionStatusError && (
                 <p className="text-xs text-muted-foreground">
                   {language === 'sw'
                     ? 'Bado tunajaribu kuangalia hali ya muamala.'

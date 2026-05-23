@@ -35,8 +35,8 @@ const Settings: React.FC = () => {
     toast.success(language === 'sw' ? 'Mipangilio imehifadhiwa' : 'Settings saved');
   };
 
-  const handleExport = () => {
-    const data = exportAllData();
+  const handleExport = async () => {
+    const data = await exportAllData();
     const blob = new Blob([data], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -179,7 +179,7 @@ const Settings: React.FC = () => {
             </div>
             
             <div className="grid grid-cols-2 gap-4">
-              <Button variant="outline" onClick={handleExport}>
+              <Button variant="outline" onClick={() => void handleExport()}>
                 <Download className="h-4 w-4 mr-2" />
                 {t('backupData')}
               </Button>

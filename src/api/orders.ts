@@ -1,4 +1,5 @@
 import api from './client';
+import type { Product } from './products';
 
 export interface OrderItem {
   productId: string;
@@ -69,9 +70,9 @@ export const ordersApi = {
 // ── Notifications ─────────────────────────────────────────────────────────────
 
 export interface AlertData {
-  lowStock: { count: number; items: any[] };
-  expiring: { count: number; items: any[] };
-  expired: { count: number; items: any[] };
+  lowStock: { count: number; items: Product[] };
+  expiring: { count: number; items: Product[] };
+  expired: { count: number; items: Product[] };
   totalAlerts: number;
 }
 

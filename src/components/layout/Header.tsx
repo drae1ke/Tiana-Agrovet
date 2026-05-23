@@ -15,7 +15,7 @@ import { Globe, User, LogOut, Bell } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 
 const Header: React.FC = () => {
-  const { session, logout } = useAuth();
+  const { admin, logout } = useAuth();
   const { t, language, setLanguage } = useLanguage();
 
   const toggleLanguage = () => {
@@ -62,9 +62,9 @@ const Header: React.FC = () => {
               <User className="h-5 w-5" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
+            <DropdownMenuContent align="end">
             <DropdownMenuLabel>
-              {t('welcomeBack')}, {session?.username}
+              {t('welcomeBack')}, {admin?.username}
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={toggleLanguage}>

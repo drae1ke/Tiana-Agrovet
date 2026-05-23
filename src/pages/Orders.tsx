@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
-import { PurchaseOrder, OrderStatus, OrderItem } from '@/types';
-import { useOrders, useUpdateOrderStatus, useTriggerAutoCheck, useSuppliers } from '@/hooks/useApi';
-import { useProducts } from '@/hooks/useProducts';
+import type { PurchaseOrder } from '@/api/orders';
+import { useOrders, useUpdateOrderStatus, useTriggerAutoCheck } from '@/hooks/useApi';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -20,7 +19,6 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogFooter,
 } from '@/components/ui/dialog';
 import {
   Select,
@@ -29,7 +27,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { toast } from 'sonner';
 import { 
   ClipboardList,
   Check,
@@ -40,21 +37,18 @@ import {
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 
+type OrderStatus = PurchaseOrder['status'];
+
 const Orders: React.FC = () => {
   const { t, language } = useLanguage();
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [showOrderDetails, setShowOrderDetails] = useState<PurchaseOrder | null>(null);
 
   const { data: ordersData, isLoading: ordersLoading } = useOrders({ limit: 200 });
-  const { data: suppliersData, isLoading: suppliersLoading } = useSuppliers({ limit: 100 });
-  const { data: productsData, isLoading: productsLoading } = useProducts({ limit: 200 });
   const updateOrderStatusMutation = useUpdateOrderStatus();
   const triggerAutoCheckMutation = useTriggerAutoCheck();
 
-  // Ensure data is always an array
-  const orders = ordersData?.data || [];
-  const suppliers = suppliersData?.data || [];
-  const products = productsData?.data || [];
+  const orders = ordersData?.data ?? [];
 
   const filteredOrders = orders.filter(o => 
     statusFilter === 'all' || o.status === statusFilter
@@ -62,7 +56,7 @@ const Orders: React.FC = () => {
 
   const handleStatusChange = (order: PurchaseOrder, newStatus: OrderStatus) => {
     updateOrderStatusMutation.mutate(
-      { id: order.id, status: newStatus },
+      { id: order._id, status: newStatus },
       {
         onSuccess: () => {
           setShowOrderDetails(null);
@@ -90,7 +84,7 @@ const Orders: React.FC = () => {
     }
   };
 
-  const isLoading = ordersLoading || suppliersLoading || productsLoading;
+  const isLoading = ordersLoading;
 
   if (isLoading) {
     return (

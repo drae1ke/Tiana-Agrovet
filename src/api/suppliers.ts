@@ -1,4 +1,5 @@
 import api from './client';
+import type { Product } from './products';
 
 export interface Supplier {
   _id: string;
@@ -23,15 +24,19 @@ export interface SupplierPayload {
   autoOrderEnabled?: boolean;
 }
 
+export interface SupplierDetails extends Supplier {
+  products: Product[];
+}
+
 export const suppliersApi = {
   getAll: async (params?: { page?: number; limit?: number; search?: string }) => {
     const { data } = await api.get('/suppliers', { params });
     return { data: data.data as Supplier[], pagination: data.pagination };
   },
 
-  getById: async (id: string) => {
+  getById: async (id: string): Promise<SupplierDetails> => {
     const { data } = await api.get(`/suppliers/${id}`);
-    return data.data as Supplier & { products: any[] };
+    return data.data;
   },
 
   create: async (payload: SupplierPayload): Promise<Supplier> => {
